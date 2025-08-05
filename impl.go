@@ -67,10 +67,6 @@ func (d *implCollection[T]) Find(ctx context.Context, filter interface{}, opt *o
 func (d *implCollection[T]) FindOne(ctx context.Context, filter interface{}, opt *options.FindOneOptions) (*T, error) {
 	bOpt := new(options.FindOneOptions)
 
-	if opt.Hint == nil {
-		return nil, errors.New("miss hint index")
-	}
-
 	result := new(T)
 
 	err := d.readCollection.
