@@ -38,10 +38,6 @@ func (d *implCollection[T]) Find(ctx context.Context, filter interface{}, opt *o
 
 	cls := d.readCollection
 
-	if opt.Hint == nil {
-		return nil, errors.New("miss hint index")
-	}
-
 	if pagination != nil {
 		total, err := cls.CountDocuments(ctx, filter)
 		if err != nil {
