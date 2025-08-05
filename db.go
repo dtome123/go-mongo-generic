@@ -12,29 +12,114 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
+// Option defines a function to configure dbOptions.
+type Option func(*dbOptions)
+
+type dbOptions struct {
+	writeURL          string
+	readURL           string
+	database          string
+	monitor           *event.CommandMonitor
+	timeout           time.Duration
+	separateReadWrite bool
+}
+
+// WithSingleURL sets a single MongoDB URL for both read and write operations.
+func WithSingleURL(url string) Option {
+	return func(o *dbOptions) {
+		o.writeURL = url
+		o.readURL = url
+		o.separateReadWrite = false
+	}
+}
+
+// WithMongoURLs sets separate MongoDB URLs for write and read operations.
+// If readURL is empty, it defaults to writeURL.
+func WithMongoURLs(writeURL, readURL string) Option {
+	return func(o *dbOptions) {
+		o.writeURL = writeURL
+		if readURL == "" {
+			o.readURL = writeURL
+		} else {
+			o.readURL = readURL
+		}
+		o.separateReadWrite = true
+	}
+}
+
+// WithSeparateReadWrite enables or disables separate read/write connections.
+// Only has effect if URLs are set separately.
+func WithSeparateReadWrite(enabled bool) Option {
+	return func(o *dbOptions) {
+		o.separateReadWrite = enabled
+	}
+}
+
+// WithDatabase sets the database name.
+func WithDatabase(db string) Option {
+	return func(o *dbOptions) {
+		o.database = db
+	}
+}
+
+// WithMonitor sets a command monitor for metrics/logging.
+func WithMonitor(monitor *event.CommandMonitor) Option {
+	return func(o *dbOptions) {
+		o.monitor = monitor
+	}
+}
+
+// WithTimeout sets a timeout for connection context.
+func WithTimeout(timeout time.Duration) Option {
+	return func(o *dbOptions) {
+		o.timeout = timeout
+	}
+}
+
 type Database struct {
 	writeDB *mongo.Database
 	readDB  *mongo.Database
 }
 
-// New creates a new Database connection with separate write/read DB.
-func New(config *Config) (*Database, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+// NewDatabase creates a new Database connection with the given options.
+func NewDatabase(opts ...Option) (*Database, error) {
+	options := &dbOptions{
+		timeout:           10 * time.Second,
+		separateReadWrite: true, // default to true
+	}
+
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	if options.writeURL == "" {
+		return nil, errors.New("write URL is required")
+	}
+
+	// if separateReadWrite is false, force readURL = writeURL
+	if !options.separateReadWrite {
+		options.readURL = options.writeURL
+	} else {
+		// separateReadWrite = true but readURL empty fallback to writeURL
+		if options.readURL == "" {
+			options.readURL = options.writeURL
+		}
+	}
+
+	if options.database == "" {
+		return nil, errors.New("database name is required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), options.timeout)
 	defer cancel()
 
-	writeClientOpts := options.Client().
-		ApplyURI(config.WriteURL).
-		SetReadPreference(readpref.Primary())
-
+	writeClientOpts := optionsMongoClient(options.writeURL, options.monitor, readpref.Primary())
 	writeClient, err := mongo.Connect(ctx, writeClientOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to write DB: %w", err)
 	}
 
-	readClientOpts := options.Client().
-		ApplyURI(config.ReadURL).
-		SetReadPreference(readpref.SecondaryPreferred())
-
+	readClientOpts := optionsMongoClient(options.readURL, options.monitor, readpref.SecondaryPreferred())
 	readClient, err := mongo.Connect(ctx, readClientOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to read DB: %w", err)
@@ -48,57 +133,18 @@ func New(config *Config) (*Database, error) {
 		return nil, fmt.Errorf("read DB ping failed: %w", err)
 	}
 
-	if config.Database == "" {
-		return nil, errors.New("no database name configured")
-	}
-
 	return &Database{
-		writeDB: writeClient.Database(config.Database),
-		readDB:  readClient.Database(config.Database),
+		writeDB: writeClient.Database(options.database),
+		readDB:  readClient.Database(options.database),
 	}, nil
 }
 
-// NewWithMonitor creates a Database connection with a command monitor (for metrics/logging).
-func NewWithMonitor(config *Config, monitor *event.CommandMonitor) (*Database, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	writeClientOpts := options.Client().
-		ApplyURI(config.WriteURL).
-		SetMonitor(monitor).
-		SetReadPreference(readpref.Primary())
-
-	writeClient, err := mongo.Connect(ctx, writeClientOpts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to write DB: %w", err)
+func optionsMongoClient(uri string, monitor *event.CommandMonitor, rp *readpref.ReadPref) *options.ClientOptions {
+	opts := options.Client().ApplyURI(uri).SetReadPreference(rp)
+	if monitor != nil {
+		opts.SetMonitor(monitor)
 	}
-
-	readClientOpts := options.Client().
-		ApplyURI(config.ReadURL).
-		SetMonitor(monitor).
-		SetReadPreference(readpref.SecondaryPreferred())
-
-	readClient, err := mongo.Connect(ctx, readClientOpts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to read DB: %w", err)
-	}
-
-	if err := writeClient.Ping(ctx, readpref.Primary()); err != nil {
-		return nil, fmt.Errorf("write DB ping failed: %w", err)
-	}
-
-	if err := readClient.Ping(ctx, readpref.SecondaryPreferred()); err != nil {
-		return nil, fmt.Errorf("read DB ping failed: %w", err)
-	}
-
-	if config.Database == "" {
-		return nil, errors.New("no database name configured")
-	}
-
-	return &Database{
-		writeDB: writeClient.Database(config.Database),
-		readDB:  readClient.Database(config.Database),
-	}, nil
+	return opts
 }
 
 // WithTransaction executes a callback inside a MongoDB transaction.
