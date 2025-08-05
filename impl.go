@@ -81,9 +81,6 @@ func (d *implCollection[T]) FindOne(ctx context.Context, filter interface{}, opt
 }
 
 func (d *implCollection[T]) FindOneAndUpdate(ctx context.Context, filter interface{}, update interface{}, opt *options.FindOneAndUpdateOptions) (result *T, err error) {
-	if opt.Hint == nil {
-		return nil, errors.New("miss hint index")
-	}
 
 	err = d.writeCollection.FindOneAndUpdate(ctx, filter, bson.M{"$set": update}, opt).Decode(result)
 
