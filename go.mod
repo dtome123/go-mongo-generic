@@ -1,4 +1,4 @@
-module go-mongo-generic
+module github.com/dtome123/go-mongo-generic
 
 go 1.24.5
 
