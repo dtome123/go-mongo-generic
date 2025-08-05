@@ -12,13 +12,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type implCollection[T Collection] struct {
+type implCollection[T CollectionModel] struct {
 	writeCollection *mongo.Collection
 	readCollection  *mongo.Collection
 	collectionName  string
 }
 
-func NewCollection[T Collection](db *Database) CollectionRepository[T] {
+func NewCollection[T CollectionModel](db *Database) Collection[T] {
 
 	var model T
 	collectionName := model.CollectionName()

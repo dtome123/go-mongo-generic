@@ -7,7 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type CollectionRepository[T Collection] interface {
+type Collection[T CollectionModel] interface {
 	GetCollection() *mongo.Collection
 
 	Find(ctx context.Context, filter interface{}, opt *options.FindOptions, pagination *Pagination) ([]*T, error)
@@ -28,6 +28,6 @@ type CollectionRepository[T Collection] interface {
 	EnsureIndexes(indexes []mongo.IndexModel) error
 }
 
-type Collection interface {
+type CollectionModel interface {
 	CollectionName() string
 }
